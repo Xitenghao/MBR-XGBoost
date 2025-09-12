@@ -1,5 +1,5 @@
 # MBR-XGBoost-on-MTO
-This Python program implements the method described in the paper 'Functional Loss Minimization Strategy in Machine Learning for Time-Resolved Selectivity Analysis in Methanol-to-Olefins Reaction'.
+This program implements the method described in the paper 'Functional Loss Minimization Strategy in Machine Learning for Time-Resolved Selectivity Analysis in Methanol-to-Olefins Reaction'.
 
 ## Exploration
 * './Exploration.ipynb' contains the preprocessing of the dataset and the exploratory data analysis. The plotting programs for Figures 2, 3, and 5 in the manuscript can be found here.
