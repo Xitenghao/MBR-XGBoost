@@ -25,7 +25,7 @@ kde2dc = function (x, y, h, n = 50, lims = c(range(x), range(y)))
 }
 
 
-data <- read.table("...", encoding='gbk', header = TRUE, sep = ",", quote = "\"", dec = ".")
+data <- read.table("data_x_ac.csv", encoding='gbk', header = TRUE, sep = ",", quote = "\"", dec = ".")
 density_plot = function (x1)
 {
     x = data[[x1]]

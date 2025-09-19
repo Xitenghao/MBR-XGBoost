@@ -1,0 +1,21 @@
+{
+"knn_b": {
+  "n_neighbors": 5
+  },
+"gbdt_b" : {
+  "n_estimators": 200,
+  "learning_rate": 0.1,
+  "max_depth": 4
+  },
+"xgb_b" : {
+  "n_estimators": 200,
+  "learning_rate": 0.36,
+  "max_depth": 3
+  },
+"MBR_XGB" : {
+  "n_estimators": 200,
+  "eta": 0.1,
+  "max_depth": 6,
+  "objective": "reg:squarederror"
+  }
+}

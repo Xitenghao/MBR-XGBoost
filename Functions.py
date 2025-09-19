@@ -29,61 +29,17 @@ import xgboost as xgb
 import matplotlib
 import warnings
 warnings.filterwarnings('ignore')
+import json
+import matplotlib.pyplot as plt
 
-def data_deal(Yield):
-    mto_df = pd.read_excel('...')
-    mto_df = mto_df.iloc[:,4:]
-    col_xy = list(mto_df.columns)
-    col_x = list(mto_df.columns[0:15])
-    mto_df['Yield'] = mto_df[Yield]
-    mto_df['Yield_1'] = mto_df['Sethylene%']
-    mto_df['ID'] = None
-    k = 0
-    for i, row in mto_df.iterrows():
-        if pd.notna(mto_df.at[i, 'ID']):
-            continue
-        mto_df.at[i, 'ID'] = k
-        in_row_x = row[col_x]
-        for j in range(i+1, len(mto_df)):
-            if (in_row_x == mto_df.loc[j, col_x]).all():
-                if mto_df.at[j, 'TOS(min)'] > mto_df.at[j-1, 'TOS(min)']:
-                    mto_df.at[j, 'ID'] = k
-                else:
-                    break
-            else:
-                break
-        k += 1
-        
-    Info = (
-        mto_df
-        .groupby('ID')
-        .agg(
-            n=('TOS(min)', lambda x: sum(x.notna() & mto_df['Yield_1'].notna())),
-            maxTOS=('TOS(min)', 'max'),
-            minTOS=('TOS(min)', 'min'),
-            # maxYield=('Yield', lambda x: x.max(skipna=True) if x.notna().any() else np.nan)
-        )
-        .reset_index()
-    )
-    
-    grouped = mto_df.loc[:,['ZEOTYPE','TOS(min)','ID']].groupby('ID')
-    max_tos = [grp['TOS(min)'].max() for i,grp in grouped]
-    max_tos_ID = [grp.iloc[0,2] for i,grp in grouped]
-    max_tos_z = [grp.iloc[0,0] for i,grp in grouped]
+def data_deal():
+    data_used = pd.read_excel('ethylene_used.xlsx')
+    ID = list(set(data_used['ID']))
 
-    max_zt_df = pd.DataFrame()
-    max_zt_df['ID']=max_tos_ID
-    max_zt_df['ZEOTYPE']=max_tos_z
-    max_zt_df['max_tos']=max_tos
-    
-    use_ID = Info.loc[(Info['maxTOS'] <= 3000) & (Info['n'] >= 5) & (Info['maxTOS'] >= 300),'ID'].tolist()
-    use_mto_df = mto_df[mto_df['ID'].isin(use_ID)]
-    use_mto_df.reset_index(drop=True,inplace=True)
-    
     Tmin = 0; Tmax = 300
     Grids = np.arange(Tmin, Tmax+1, 1)
     
-    df_Curves = format_Curves(use_mto_df, use_ID, Grids)
+    df_Curves = format_Curves(data_used, ID, Grids)
     
     df_Curves = df_Curves.reset_index(drop=True)
     missing_count_per_row = df_Curves.isnull().sum(axis=1)
@@ -125,10 +81,8 @@ def data_deal(Yield):
     cla_name = ['Modification', 'AS', 'Largest Ring sizes', 'CD']
     num_name = [n for n in X_name if n not in cla_name]
     
-    X_df = use_mto_df.drop_duplicates(subset='ID', keep='first')
+    X_df = data_used.drop_duplicates(subset='ID', keep='first')
     data_x = X_df[X_name].reset_index(drop=True)
-    data_x = data_x.loc[index_to_keep]
-    data_x = data_x.reset_index(drop=True)
     print('Data processing completed!')
     return data_tpts,data_x,data_y
 
@@ -511,11 +465,10 @@ def XGB_B(data_x,data_y,data_tpts,n_basis,order=4,
     if params is None:
         params = {'learning_rate': 0.45,
                   'max_depth': 5,
-                  'n_estimators': 100,
-                  'min_child_weight': 3,
-                  'seed': seed[ite]}
+                  'n_estimators': 100
+                 }
     xgb_mult = MultiOutputRegressor(
-        xgb.XGBRegressor(objective='reg:squarederror',
+        xgb.XGBRegressor(objective='reg:squarederror', seed=seed[ite],
                          **params))
     xgb_mult.fit(X_train, y_train_c)
     
@@ -720,7 +673,45 @@ def MBR_XGB(data_x, data_y, model_params,
         # Calculate gradients and Hessian matrices based on model predictions and training data
         g, h = hit_grads(pred_total, dtrain_y, dtrain_c, loss_type=loss_type)
         # Loop to update and iterate
+        for i in range(n_basis):
+            grad = g[:][i].to_numpy().flatten()
+            hess = h[:][i].to_numpy().flatten()
+            model = model_list[i]
+            model.boost(dtrain_list[i], grad, hess)
+            model_list[i] = model
+    if test_size==0:
+        return {'model':model_list, 
+            'loss_result': loss_result,}
+    else:
+        c_pred = np.array([model.predict(dtest_list[i]) for i, model in enumerate(model_list)]).T
 
+        basis = BSplineBasis(
+            domain_range=(0.0, data_tpts[-1]),
+            n_basis=n_basis,
+            order=order)
+        pred_b = FDataBasis(basis, c_pred)
+        pred_y = pred_b.to_grid(data_tpts).data_matrix
+
+        pred_y = pred_y.reshape(-1,len((pred_y[0])))
+        pred_y_df = pd.DataFrame(pred_y,columns=dtrain_y.columns)
+
+        y_test_obs = data_y.iloc[test_idx,:]
+        numerator = np.nansum((y_test_obs - pred_y_df)**2)
+        denominator = np.nansum((y_test_obs - np.nanmean(y_test_obs))**2)
+        R2_score = 1 - (numerator / denominator)
+        mise_score = np.nanmean(np.nansum((y_test_obs - pred_y_df)**2, axis=1))
+        mae_score = np.nanmean(np.nanmean(abs(y_test_obs - pred_y_df), axis=1))
+        rmse_score = np.sqrt(np.nanmean(np.nanmean((y_test_obs - pred_y_df)**2, axis=1)))
+        return {'model':model_list, 
+                'loss_result': loss_result,
+                'test_idx':test_idx,
+                'y_pred_b':c_pred,
+                'y_pred':pred_y_df,
+                'R2_score': R2_score,
+                'mise_score':mise_score,
+                'mae_score':mae_score,
+                'rmse_score':rmse_score
+               }
 '''Compare the performance of various models'''
 def compared(n, seed_z, data_x, data_y, 
              data_tpts, n_basis, order, 
@@ -729,47 +720,24 @@ def compared(n, seed_z, data_x, data_y,
              ensemble = False):
     random.seed(seed_z)
     seed = list(random.sample(list(range(1, 1001)), n))
-
+    try:
+        with open('models_config.json', 'r') as par_file:
+            parameter = json.load(par_file)
+    except:
+        print('Error in model parameter file!')
+    
     Index_all = {'method_name':[],
                  'R2_mean':[],
                  'R2_var':[],
-                 'R2_max':[],
-                 'R2_min':[],
+                 # 'R2_max':[],
+                 # 'R2_min':[],
                  'Mise_mean':[],
                  'Mise_var':[],
-                 'Mae_mean':[],
-                 'Mae_var':[],
+                 # 'Mae_mean':[],
+                 # 'Mae_var':[],
                  'Rmse_mean':[],
                  'Rmse_var':[]}
     MISE_all = {}
-    if 'NNBR' in method_list:
-        R2_n = []
-        mise_n = []
-        y_pred_to_n = []
-        test_idx_to_n = []
-        for i in range(n):
-            output = NNBR(data_x, data_y, data_tpts,
-                          n_basis = n_basis, order = order, 
-                          test_size = test_size, seed = seed, 
-                          ite = i, hidden_nodes = [10,8,6], 
-                          activations = ['sigmoid','sigmoid','sigmoid'], batch_size =16, 
-                          epochs = 1000, early_stopping = False, 
-                          early_patience = 10)
-        mean_R2 = np.mean(R2_n)
-        var_R2 = np.var(R2_n)
-        max_R2 = np.max(R2_n)
-        min_R2 = np.min(R2_n)
-        mean_mise = np.mean(mise_n)
-        var_mise = np.var(mise_n)
-        
-
-        Index_all['method_name'].append('fboost_b')
-        Index_all['R2_mean'].append(mean_R2)
-        Index_all['R2_var'].append(var_R2)
-        Index_all['R2_max'].append(max_R2)
-        Index_all['R2_min'].append(min_R2)
-        Index_all['Mise_mean'].append(mean_mise)
-        Index_all['Mise_var'].append(var_mise)
     
     if 'lin_b' in method_list:
         R2_l = []
@@ -805,16 +773,17 @@ def compared(n, seed_z, data_x, data_y,
         Index_all['method_name'].append('lin_b')
         Index_all['R2_mean'].append(mean_R2)
         Index_all['R2_var'].append(var_R2)
-        Index_all['R2_max'].append(max_R2)
-        Index_all['R2_min'].append(min_R2)
+        # Index_all['R2_max'].append(max_R2)
+        # Index_all['R2_min'].append(min_R2)
         Index_all['Mise_mean'].append(mean_mise)
         Index_all['Mise_var'].append(var_mise)
-        Index_all['Mae_mean'].append(mean_mae)
-        Index_all['Mae_var'].append(var_mae)
+        # Index_all['Mae_mean'].append(mean_mae)
+        # Index_all['Mae_var'].append(var_mae)
         Index_all['Rmse_mean'].append(mean_rmse)
         Index_all['Rmse_var'].append(var_rmse)
     
     if 'knn_b' in method_list:
+        n_neighbors = parameter['knn_b']['n_neighbors']
         R2_k = []
         mise_k = []
         mae_k = []
@@ -825,7 +794,7 @@ def compared(n, seed_z, data_x, data_y,
             out_put_k = fos_B(data_x,data_y,data_tpts,
                             n_basis=n_basis,order=n_basis,
                             test_size=test_size,seed=seed,ite=i,
-                            model_type='k', n_neighbors=5)
+                            model_type='k', n_neighbors=n_neighbors)
             R2_k.append(out_put_k['R2_score'])
             mise_k.append(out_put_k['mise_score'])
             y_pred_to_k.append(out_put_k['y_pred'])
@@ -848,12 +817,12 @@ def compared(n, seed_z, data_x, data_y,
         Index_all['method_name'].append('knn_b')
         Index_all['R2_mean'].append(mean_R2)
         Index_all['R2_var'].append(var_R2)
-        Index_all['R2_max'].append(max_R2)
-        Index_all['R2_min'].append(min_R2)
+        # Index_all['R2_max'].append(max_R2)
+        # Index_all['R2_min'].append(min_R2)
         Index_all['Mise_mean'].append(mean_mise)
         Index_all['Mise_var'].append(var_mise)
-        Index_all['Mae_mean'].append(mean_mae)
-        Index_all['Mae_var'].append(var_mae)
+        # Index_all['Mae_mean'].append(mean_mae)
+        # Index_all['Mae_var'].append(var_mae)
         Index_all['Rmse_mean'].append(mean_rmse)
         Index_all['Rmse_var'].append(var_rmse)
         
@@ -880,11 +849,13 @@ def compared(n, seed_z, data_x, data_y,
         Index_all['method_name'].append('dtr_b')
         Index_all['R2_mean'].append(mean_R2)
         Index_all['R2_var'].append(var_R2)
-        Index_all['R2_max'].append(max_R2)
-        Index_all['R2_min'].append(min_R2)
+        # Index_all['R2_max'].append(max_R2)
+        # Index_all['R2_min'].append(min_R2)
         Index_all['Mise_mean'].append(mean_mise)
         Index_all['Mise_var'].append(var_mise)
-
+        Index_all['Rmse_mean'].append(mean_rmse)
+        Index_all['Rmse_var'].append(var_rmse)
+        
     if 'rsf_b' in method_list:
         R2_r = []
         mise_r = []
@@ -915,6 +886,7 @@ def compared(n, seed_z, data_x, data_y,
         Index_all['Mise_var'].append(var_mise)
 
     if 'gbdt_b' in method_list:
+        params = parameter['gbdt_b']
         R2_g = []
         mise_g = []
         mae_g = []
@@ -924,7 +896,7 @@ def compared(n, seed_z, data_x, data_y,
         for i in range(n):
             out_put_g = GBDT_B(data_x,data_y,data_tpts,
                             n_basis=n_basis,order=order,
-                            test_size=test_size,seed=seed,ite=i)
+                            test_size=test_size,seed=seed,ite=i,params=params)
             R2_g.append(out_put_g['R2_score'])
             mise_g.append(out_put_g['mise_score'])
             y_pred_to_g.append(out_put_g['y_pred'])
@@ -947,16 +919,17 @@ def compared(n, seed_z, data_x, data_y,
         Index_all['method_name'].append('gbdt_b')
         Index_all['R2_mean'].append(mean_R2)
         Index_all['R2_var'].append(var_R2)
-        Index_all['R2_max'].append(max_R2)
-        Index_all['R2_min'].append(min_R2)
+        # Index_all['R2_max'].append(max_R2)
+        # Index_all['R2_min'].append(min_R2)
         Index_all['Mise_mean'].append(mean_mise)
         Index_all['Mise_var'].append(var_mise)
-        Index_all['Mae_mean'].append(mean_mae)
-        Index_all['Mae_var'].append(var_mae)
+        # Index_all['Mae_mean'].append(mean_mae)
+        # Index_all['Mae_var'].append(var_mae)
         Index_all['Rmse_mean'].append(mean_rmse)
         Index_all['Rmse_var'].append(var_rmse)
         
     if 'xgb_b' in method_list:
+        params = parameter['xgb_b']
         R2_x = []
         mise_x = []
         mae_x = []
@@ -966,7 +939,7 @@ def compared(n, seed_z, data_x, data_y,
         for i in range(n):
             out_put_x = XGB_B(data_x,data_y,data_tpts,
                             n_basis=n_basis,order=order,
-                            test_size=test_size,seed=seed,ite=i)
+                            test_size=test_size,seed=seed,ite=i,params=params)
             R2_x.append(out_put_x['R2_score'])
             mise_x.append(out_put_x['mise_score'])
             y_pred_to_x.append(out_put_x['y_pred'])
@@ -989,20 +962,18 @@ def compared(n, seed_z, data_x, data_y,
         Index_all['method_name'].append('xgb_b')
         Index_all['R2_mean'].append(mean_R2)
         Index_all['R2_var'].append(var_R2)
-        Index_all['R2_max'].append(max_R2)
-        Index_all['R2_min'].append(min_R2)
+        # Index_all['R2_max'].append(max_R2)
+        # Index_all['R2_min'].append(min_R2)
         Index_all['Mise_mean'].append(mean_mise)
         Index_all['Mise_var'].append(var_mise)
-        Index_all['Mae_mean'].append(mean_mae)
-        Index_all['Mae_var'].append(var_mae)
+        # Index_all['Mae_mean'].append(mean_mae)
+        # Index_all['Mae_var'].append(var_mae)
         Index_all['Rmse_mean'].append(mean_rmse)
         Index_all['Rmse_var'].append(var_rmse)
         
     if 'MBR_XGB' in method_list:
-        model_params = {'eta': 0.15,
-                'max_depth': 5,
-                "min_child_weight": 5,
-                'objective': 'reg:squarederror'}
+        params = parameter['MBR_XGB']
+        num_rounds = parameter['MBR_XGB']['n_estimators']
         R2_mx = []
         mise_mx = []
         mae_mx = []
@@ -1010,9 +981,9 @@ def compared(n, seed_z, data_x, data_y,
         y_pred_to_mx = []
         test_idx_to_mx = []
         for i in range(n):
-            out_put_mx = MBR_XGB(data_x, data_y, model_params, 
+            out_put_mx = MBR_XGB(data_x, data_y, params, 
                                 data_tpts, n_basis=n_basis, order=order, 
-                                num_rounds=200,loss_type=1,
+                                num_rounds=num_rounds,loss_type=1,
                                 test_size=0.2,seed=seed,
                                 ite=i,silent=True)
             R2_mx.append(out_put_mx['R2_score'])
@@ -1034,26 +1005,26 @@ def compared(n, seed_z, data_x, data_y,
         
         MISE_all['MBR-XGB'] = mise_mx
         
-        Index_all['method_name'].append('fboost_b')
+        Index_all['method_name'].append('MBR_XGB')
         Index_all['R2_mean'].append(mean_R2)
         Index_all['R2_var'].append(var_R2)
-        Index_all['R2_max'].append(max_R2)
-        Index_all['R2_min'].append(min_R2)
+        # Index_all['R2_max'].append(max_R2)
+        # Index_all['R2_min'].append(min_R2)
         Index_all['Mise_mean'].append(mean_mise)
         Index_all['Mise_var'].append(var_mise)
-        Index_all['Mae_mean'].append(mean_mae)
-        Index_all['Mae_var'].append(var_mae)
+        # Index_all['Mae_mean'].append(mean_mae)
+        # Index_all['Mae_var'].append(var_mae)
         Index_all['Rmse_mean'].append(mean_rmse)
         Index_all['Rmse_var'].append(var_rmse)
 
+    if not plot_flag:
+        return MISE_all, Index_all
     if plot_flag:
-        save_folder = 'image'
+        save_folder = 'images'
         matplotlib.rcParams['font.size'] = 22
         import os
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
-        if not os.path.exists(save_folder_1):
-            os.makedirs(save_folder_1)
         for k in range(n):
             m = k
             y_pred_l = y_pred_to_l[m]
@@ -1091,5 +1062,5 @@ def compared(n, seed_z, data_x, data_y,
                 plt.tight_layout()
                 r2_mx = R2_mx[m]
                 plt.savefig(os.path.join(save_folder, f'curve_{t_idx+1}_{k}.png'))
-                plt.close()  
-        return MISE_all,Index_all
+                plt.close()
+    return MISE_all, Index_all

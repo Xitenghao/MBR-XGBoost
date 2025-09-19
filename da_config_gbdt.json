@@ -1,0 +1,17 @@
+{
+"name": "obj_xgb",
+
+"domain" : {
+  "learn_vol" : {
+  "name":"learn_vol",
+  "type":"discrete_numeric",
+  "items":"0.1:0.02:0.5"
+  },
+
+  "maxdep_vol" : {
+  "name":"maxdep_vol",
+  "type":"discrete_numeric",
+  "items":"3:1:7"
+  }
+  }
+}
