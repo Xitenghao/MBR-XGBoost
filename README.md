@@ -1,8 +1,5 @@
 # MBR-XGB on MTO
 
-## ethylene_used
-* './ethylene_used.xlsx' comprises the ethylene selectivity data utilized in our research.
-
 ## Exploration
 * './Exploration.ipynb' contains the preprocessing of the dataset and the exploratory data analysis. The plotting programs for Figures 2, 3, and 5 in the manuscript can be found here.
 
@@ -23,7 +20,3 @@
 
 ## SHAP for MBR_XGB
 * './SHAP for MBR_XGB.ipynb' contains the SHAP analysis process for MBR-XGB and the plotting program for Figure 9 in the manuscript.
-
-## json
-* './da_config_gbdt.json', './da_config_xgb.json', and './da_config_mbr.json' are the parameter boundaries defined for DA optimization.
-* './models_config' includes the model parameters used in our study.

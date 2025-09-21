@@ -1,12 +1,9 @@
 #Load dependencies
-from keras import Sequential
 import numpy as np 
 import skfda
 import random
 import pandas as pd
-import tensorflow as tf
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeRegressor, plot_tree
 from skfda.ml.regression import LinearRegression
 from skfda.preprocessing.dim_reduction.variable_selection.maxima_hunting import (

@@ -1,0 +1,14 @@
+scikit-learn==1.5.1
+scikit-fda==0.9.1
+numpy==1.26.4
+dragonfly-opt==0.1.7
+xgboost==2.0.0
+shap==0.46.0
+scipy==1.13.1
+scikit-posthocs==0.10.0
+pandas==2.2.2
+matplotlib==3.9.0
+seaborn==0.13.2
+openpyxl==3.1.5
+
+##Note: Due to insufficient maintenance, the np.int() function used in dragonfly-opt has been deprecated in NumPy versions >1.20. Therefore, it is necessary to replace all instances of np.int() with int() in dragonfly-opt to ensure proper functionality of the Dragonfly algorithm.
