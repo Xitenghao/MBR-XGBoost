@@ -1,5 +1,8 @@
 # MBR-XGB on MTO
 
+## ethylene_used
+* './ethylene_used.xlsx' is the data used in ethylene analysis.
+
 ## config
 * './da_config_gbdt.json', './da_config_xgb.json', and './da_config_mbr.json'define the parameter bounds for the DA hyperparameter tuning of the GBDT, XGBoost, and MBR-XGB models, respectively.
 * './models_config.json' contains the parameters for all models used in our training.
