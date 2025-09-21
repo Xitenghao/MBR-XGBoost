@@ -24,3 +24,6 @@
 
 ## SHAP for MBR_XGB
 * './SHAP for MBR_XGB.ipynb' contains the SHAP analysis process for MBR-XGB and the plotting program for Figure 9 in the manuscript.
+
+## requirements
+* './requirements.txt' specifies all Python packages and their respective versions utilized in this study.
