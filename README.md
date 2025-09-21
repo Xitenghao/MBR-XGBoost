@@ -1,5 +1,9 @@
 # MBR-XGB on MTO
 
+## config
+* './da_config_gbdt.json', './da_config_xgb.json', and './da_config_mbr.json'define the parameter bounds for the DA hyperparameter tuning of the GBDT, XGBoost, and MBR-XGB models, respectively.
+* './models_config.json' contains the parameters for all models used in our training.
+
 ## Exploration
 * './Exploration.ipynb' contains the preprocessing of the dataset and the exploratory data analysis. The plotting programs for Figures 2, 3, and 5 in the manuscript can be found here.
 
